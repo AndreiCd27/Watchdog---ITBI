@@ -25,7 +25,6 @@ else
 fi
 
 KB=$(( ramLimitMB << 10 ))
-echo "(RAM LIMIT: $KB KB)"
 
 checkFileExists() {
     if [ -f $1 ]

@@ -1,5 +1,4 @@
 import time
-import queue
 from graphics import *
 
 def main():
@@ -50,7 +49,7 @@ def main():
     sizeX = [100,100,125,75,200,200]
     header = ["PID", "USER", "RAM", "%CPU", "TIME", "COMMAND"]
     
-    chartENTRIES=10
+    chartENTRIES=30
 
     def makeText(x1,y1,str,textSize):
         text = Text(Point(x1,y1),str)
@@ -147,8 +146,8 @@ def main():
     tram.draw(win)
     headerList.append(tram)
     
-    makeRectangle(20,45,320,145).draw(win)
-    makeRectangle(420,45,720,145).draw(win)
+    makeRectangle(20,45,320,145).draw(win) #bounding box pt grafic cpu
+    makeRectangle(420,45,720,145).draw(win) #bounding box pt grafic ram
 
     for y1 in range(9,n+9):
         x1 = 0
