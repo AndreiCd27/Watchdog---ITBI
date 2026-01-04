@@ -5,22 +5,73 @@ ramLimitMB=$2
 
 if [ -z $cpuLimit ]
 then
+    cpuLimit=5
     echo "CPU LIMIT IS 5%"
 else
     echo "CPU LIMIT IS $cpuLimit%"
 fi
 if [ -z $ramLimitMB ]
 then
+    ramLimitMB=1024
     echo "RAM LIMIT IS 1024 MB"
 else
-    echo "RAM LIMIT IS $ramLimitMB MB"
+    if [[ $ramLimitMB > 255 ]]
+    then
+    	echo "RAM LIMIT IS $ramLimitMB MB"
+    else
+    	ramLimitMB=1024
+    	echo "RAM LIMIT IS 1024 MB"
+    fi
 fi
+
+KB=$(( ramLimitMB << 10 ))
+echo "(RAM LIMIT: $KB KB)"
+
+checkFileExists() {
+    if [ -f $1 ]
+    then
+    	echo "Checked for $1 file!"
+    else
+        echo "File $1 does not exist in the current directory!"
+        exit
+    fi
+}
+
+checkFileExists "report.txt"
+checkFileExists "deviceUsage.txt"
+checkFileExists "whitelist.txt"
 
 echo "" > deviceUsage.txt
 echo "" > report.txt
 
+read -p "Choose what value to sort by [RAM/CPU]" SORTBY
+
+if [[ $SORTBY == "RAM" || ($SORTBY != "RAM" && $SORTBY != "CPU") ]]
+then
+	SORTBY="RES"
+	echo "Sorting by RAM USAGE"
+fi
+if [[ $SORTBY == "CPU" ]]
+then
+	SORTBY="%CPU"
+	echo "Sorting by CPU USAGE"
+fi
+
+read -p "Do you want to see your processes in a UI? (y/n) " yn
+if [[ $yn == "y" ]]
+then
+    checkFileExists "graphics.py"
+    checkFileExists "graphicsDemo.py"
+    python3 graphicsDemo.py &
+    PYTHON_PID=$!
+    trap "echo -e ' \n WATCHDOG TERMINATED' ; kill $PYTHON_PID ; echo "" > report.txt ; echo "" > deviceUsage.txt ; exit" SIGINT SIGTERM
+    echo "Initializing window"
+    sleep 3
+    echo "Initialization done"
+fi
+
 getDeviceUsage() {
-	CPU_USAGE=$( top -b -o $SORTBY -d 1 -n 1 | head -n +5 | grep "Cpu(s)" | awk '{print 100 - $8}' )
+	CPU_USAGE=$( top -b -n 1 | head -n +5 | grep "Cpu(s)" | awk '{print 100 - $8}' )
 	FREE_RAM=$(free --mega | tail +2 | head -1)
 	echo $FREE_RAM | while read MEM TOTAL USED FREE SHARED CACHE AVAILABLE
 	do
@@ -29,32 +80,6 @@ getDeviceUsage() {
 		echo -e "\n $CPU_USAGE $P_USED $P_SHR $TOTAL" > deviceUsage.txt
 	done
 }
-
-SELF_PID=$!
-
-read -p "Choose what value to sort by [RAM/CPU]" SORTBY
-
-if [[ $SORTBY == "RAM" || ($SORTBY != "RAM" && $SORTBY != "CPU") ]]
-then
-	SORTBY="RES"
-	echo "Monitoring RAM USAGE"
-fi
-if [[ $SORTBY == "CPU" ]]
-then
-	SORTBY="%CPU"
-	echo "Monitoring CPU USAGE"
-fi
-
-read -p "Do you want to see your processes in a UI? (y/n) " yn
-if [[ $yn == "y" ]]
-then
-    python3 graphicsDemo.py &
-    PYTHON_PID=$!
-    trap "echo -e ' \n WATCHDOG TERMINATED' ; kill $PYTHON_PID ; echo "" > report.txt ; echo "" > deviceUsage.txt ; exit" SIGINT SIGTERM
-    echo "Initializing window"
-    sleep 3
-    echo "Initialization done"
-fi
 
 USER=$(whoami)
 
@@ -68,41 +93,36 @@ do
     do
         if [[ $usr != "root" ]]
         then
-		KB=$(( $ramLimitMB << 10 ))
-		if [ $ram -gt $KB ]
-		then
-		    echo "Process $name (PID = $pid) RAM usage exceded {$ramLimitMB}MB"
-		    echo "Process $pid will be stopped (SIGTERM)"
-		    kill $pid
-		fi
-		cpu=$(echo $cpu | tr -d .)
-		cpu=$(( $cpu / 10 ))
-		if [ $cpu -gt $cpuLimit ]
-		then
-		    if [[ $? == 0 ]]
+        	IGNORE=0
+		while read -r ignoreElem
+		do
+		    if echo $name | grep -q $ignoreElem
 		    then
-			IGNORE=0
-			while read -r ignoreElem
-			do
-			    echo $name | grep $ignoreElem
-			    if [[ $? == 0 ]]
-			    then
-				echo "Ignored $name (PID = $pid)"
-				IGNORE=1
-			    fi
-			done < whitelist.txt
-			if [[ $IGNORE == 0 ]]
-			then
-			    echo "Process $name (PID = $pid) CPU usage exceded $cpuLimit% (Used: $cpu%)"
-			    echo "Process $pid will be stopped (SIGSTOP)"
-			    kill -19 $pid
-			    (sleep 10; kill -18 $pid; echo "Process $name (PID = $pid) running... (SIGCONT)")&
-			fi
-		fi
-            fi
+			IGNORE=1
+		    fi
+		done < whitelist.txt
+		if [[ $IGNORE == 0 ]]
+		then
+        	    diff=$(( KB - ram ))
+		    if [ $diff -lt 0 ]
+		    then
+		        MBram=$(( ram >> 10 ))
+		        echo "Process $name (PID = $pid) RAM usage exceded $ramLimitMB MB (USED: $MBram MB)"
+		        echo "Process $pid will be stopped (SIGTERM)"
+		        kill $pid
+		    fi
+		    cpu=$(echo $cpu | tr -d .)
+		    cpu=$(( $cpu / 10 ))
+		    diffCPU=$(( cpuLimit - cpu ))
+		    if [ $diffCPU -lt 0 ]
+		    then
+		        echo "Process $name (PID = $pid) CPU usage exceded $cpuLimit% (Used: $cpu%)"
+		        echo "Process $pid will be stopped (SIGSTOP)"
+		        kill -19 $pid
+		        (sleep 10; kill -18 $pid; echo "Process $name (PID = $pid) running... (SIGCONT)")&
+                    fi
+                fi
         fi
     done
     sleep 1
 done
-
-echo "Checked for processes using more than 1GB RAM or 5% CPU"

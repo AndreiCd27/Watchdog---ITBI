@@ -67,7 +67,7 @@ def main():
                         cpuUsed=0
                         if i==2:
                             ramUsed = int(info) >> 10
-                            info = str(int(info) >> 10) + " MiB"
+                            info = str(int(info) >> 10) + " MB"
                         if i==3:
                             cpuUsed = float(info)
                         textList[(l)*6+i].setText(info)
@@ -81,7 +81,7 @@ def main():
         if len(valuesLIST)>0:
             valuesEnd = valuesLIST[0]
             headerList[0].setText(valuesEnd[0] + "% CPU USED")
-            headerList[1].setText(valuesEnd[1] + "% RAM USED | " + valuesEnd[2] + "% RAM SHARED | " + str(int(valuesEnd[3])) + "MiB TOTAL" )
+            headerList[1].setText(valuesEnd[1] + "% RAM USED | " + valuesEnd[2] + "% RAM SHARED | " + str(int(valuesEnd[3])) + "MB TOTAL" )
 
             return [valuesEnd[0],valuesEnd[1],valuesEnd[2]]
         return []
