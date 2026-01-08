@@ -1,28 +1,44 @@
 #!/bin/bash
 
+HELP=$1
+if [[ $HELP == "--help" ]]
+then
+	echo -e "----------------- COMMAND STRUCTURE --------------------------------- \n"
+	echo "./watchdog.sh [CPU_LIMIT] [RAM_LIMIT] [*WHITELIST ( KEYWORD_1 KEYWORD_2 ... ) ]"
+	echo -e "\n [CPU_LIMIT] --> Maximum workload of CPU (per core) per process, expressed as a percentage"
+	echo -e "\n [RAM_LIMIT] --> Maximum physical memory per process, expressed in MB"
+	echo -e "\n [*WHITELIST] --> A list of keywords used to exclude processes with matching command names"
+	echo -e "\n \n EXAMPLE: ./watchdog.sh 5 1024 firefox gnome \n"
+	echo -e '--> All processes using more than 5% of CPU or using more than 1024MB memory (excluding commands matching "firefox" & "gnome") will be suspended'
+	exit
+fi
+
 cpuLimit=$1
 ramLimitMB=$2
+keywords=${@:3}
 
 if [ -z $cpuLimit ]
 then
     cpuLimit=5
-    echo "CPU LIMIT IS 5%"
 else
-    echo "CPU LIMIT IS $cpuLimit%"
+    if [[ cpuLimit < 5 ]]
+    then
+    	echo -e "\e[31m CPU LIMIT TOO LOW (<5%) \e[0m"
+    	exit
+    fi
 fi
 if [ -z $ramLimitMB ]
 then
     ramLimitMB=1024
-    echo "RAM LIMIT IS 1024 MB"
 else
-    if [[ $ramLimitMB > 255 ]]
+    if [[ ramLimitMB < 256 ]]
     then
-    	echo "RAM LIMIT IS $ramLimitMB MB"
-    else
-    	ramLimitMB=1024
-    	echo "RAM LIMIT IS 1024 MB"
+    	echo -e "\e[31m RAM LIMIT TOO LOW (<256MB) \e[0m"
+    	exit
     fi
 fi
+echo -e "\e[35m CPU LIMIT IS $cpuLimit% \e[0m"
+echo -e "\e[35m RAM LIMIT IS $ramLimitMB MB \e[0m"
 
 KB=$(( ramLimitMB << 10 ))
 
@@ -36,47 +52,69 @@ checkFileExists() {
     fi
 }
 
-checkFileExists "report.txt"
-checkFileExists "deviceUsage.txt"
 checkFileExists "whitelist.txt"
 
-echo "" > deviceUsage.txt
-echo "" > report.txt
+echo -e "WHITELIST: \n \e[35m-- $keywords\e[0m (from input) \n\e[35m`cat whitelist.txt`\e[0m \n(from whitelist.txt)"
 
 read -p "Choose what value to sort by [RAM/CPU]" SORTBY
 
 if [[ $SORTBY == "RAM" || ($SORTBY != "RAM" && $SORTBY != "CPU") ]]
 then
-	SORTBY="RES"
+	SORTBY="rss"
 	echo "Sorting by RAM USAGE"
 fi
 if [[ $SORTBY == "CPU" ]]
 then
-	SORTBY="%CPU"
+	SORTBY="%cpu"
 	echo "Sorting by CPU USAGE"
 fi
 
-read -p "Do you want to see your processes in a UI? (y/n) " yn
+testPID() {
+    if [ -d "/proc/$1" ]
+    then
+    	return 0
+    else
+        echo -e "\e[33m Process $2 with ID $1 NOT FOUND IN /proc \e[0m"
+        return 1
+    fi
+}
+
+read -p "Do you want to see your processes in Python UI? (y/n)" yn
+
+touch "report.txt"
+touch "deviceUsage.txt"
+touch "ended.txt"
+
 if [[ $yn == "y" ]]
 then
     checkFileExists "graphics.py"
     checkFileExists "graphicsDemo.py"
     python3 graphicsDemo.py &
     PYTHON_PID=$!
-    trap "echo -e ' \n WATCHDOG TERMINATED' ; kill $PYTHON_PID ; echo "" > report.txt ; echo "" > deviceUsage.txt ; exit" SIGINT SIGTERM
-    echo "Initializing window"
-    sleep 3
-    echo "Initialization done"
+    echo -e "\e[35mInitializing window (PID=$PYTHON_PID)\e[0m"
+    trap "echo -e ' \n WATCHDOG TERMINATED' ; kill $PYTHON_PID ; rm report.txt ; rm deviceUsage.txt ; rm ended.txt ; exit" SIGINT SIGTERM
+    sleep 2
+    echo -e "\e[35mInitialization done\e[0m"
+else
+    trap "echo -e ' \n WATCHDOG TERMINATED' ; rm report.txt ; rm deviceUsage.txt ; rm ended.txt ; exit" SIGINT SIGTERM
 fi
 
 getDeviceUsage() {
-	CPU_USAGE=$( top -b -n 1 | head -n +5 | grep "Cpu(s)" | awk '{print 100 - $8}' )
-	FREE_RAM=$(free --mega | tail +2 | head -1)
-	echo $FREE_RAM | while read MEM TOTAL USED FREE SHARED CACHE AVAILABLE
+	read -rs cpustxt user nice system idle iowait irq softirq x0 x1 x2 < /proc/stat
+	sum1=$(( user + nice + system + idle + iowait + irq + softirq + x0 + x1 + x2 ))
+	idle1=$idle
+	sleep 3
+	read -rs cpustxt user nice system idle iowait irq softirq x0 x1 x2 < /proc/stat
+	sum2=$(( user + nice + system + idle + iowait + irq + softirq + x0 + x1 + x2 ))
+	idle2=$idle
+	idleTotal=$(( idle2 * 100 - idle1 * 100 ))
+	sumTotal=$(( sum2 - sum1 ))
+	CPU_USAGE=$(( 100 - idleTotal / sumTotal ))
+	free --mega | tail +2 | head -1 | while read MEM TOTAL USED FREE SHARED CACHE AVAILABLE
 	do
-		P_USED=$(( $USED * 100 / $TOTAL ))
-		P_SHR=$(( $SHARED * 100 / $TOTAL ))
-		echo -e "\n $CPU_USAGE $P_USED $P_SHR $TOTAL" > deviceUsage.txt
+	    P_USED=$(( USED * 100 / TOTAL ))
+	    P_SHR=$(( SHARED * 100 / TOTAL ))
+	    echo -e "\n $CPU_USAGE $P_USED $P_SHR $TOTAL" > deviceUsage.txt
 	done
 }
 
@@ -84,7 +122,8 @@ USER=$(whoami)
 
 while [[ 0==0 ]]
 do
-    top -b -o $SORTBY -d 1 -n 1 | tail -n +7 | awk -F' ' '{print $1, $2, $6, $9, $11, $12}' > report.txt
+    #top -b -o $SORTBY -n 1 | tail -n +7 | awk -F' ' '{print $1, $2, $6, $9, $11, $12}' > report.txt
+    ps -eo pid,user,rss,%cpu,time,comm --sort=-$SORTBY > report.txt
     getDeviceUsage
 	
     tail +2 report.txt |
@@ -100,28 +139,35 @@ do
 			IGNORE=1
 		    fi
 		done < whitelist.txt
-		if [[ $IGNORE == 0 ]]
+		for ignoreElem in $keywords
+		do
+		    if echo $name | grep -q $ignoreElem
+		    then
+			IGNORE=1
+		    fi
+		done
+		if (( IGNORE == 0 ))
 		then
-        	    diff=$(( KB - ram ))
-		    if [ $diff -lt 0 ]
+		    if (( ram > KB ))
 		    then
 		        MBram=$(( ram >> 10 ))
-		        echo "Process $name (PID = $pid) RAM usage exceded $ramLimitMB MB (USED: $MBram MB)"
-		        echo "Process $pid will be stopped (SIGTERM)"
-		        kill $pid
+		        testPID $pid $name && (
+		        echo -e "\e[31m Process $name (PID = $pid) RAM usage exceded $ramLimitMB MB (USED: $MBram MB) \e[0m"
+		        echo -e "\e[31m Process $pid will be stopped (SIGTERM) \e[0m"
+		        kill $pid 
+		        )
 		    fi
-		    cpu=$(echo $cpu | tr -d .)
-		    cpu=$(( $cpu / 10 ))
-		    diffCPU=$(( cpuLimit - cpu ))
-		    if [ $diffCPU -lt 0 ]
+		    cpu=$(echo $cpu | awk '{print int($1)}' )
+		    if (( cpu > cpuLimit ))
 		    then
-		        echo "Process $name (PID = $pid) CPU usage exceded $cpuLimit% (Used: $cpu%)"
-		        echo "Process $pid will be stopped (SIGSTOP)"
+		    	testPID $pid $name && (
+		        echo -e "\e[31m Process $name (PID = $pid) CPU usage exceded $cpuLimit% (Used: $cpu%) \e[0m"
+		        echo -e "\e[31m Process $pid will be stopped (SIGSTOP) \e[0m"
 		        kill -19 $pid
-		        (sleep 10; kill -18 $pid; echo "Process $name (PID = $pid) running... (SIGCONT)")&
+		        (sleep 10; kill -18 $pid; echo -e "\e[32m Process $name (PID = $pid) running... (SIGCONT) \e[0m")&
+			)
                     fi
                 fi
         fi
     done
-    sleep 1
 done
