@@ -46,8 +46,8 @@ def main():
     chartLIST = []
     chartRECT = []
     textList = []  
-    sizeX = [100,100,125,75,200,200]
-    header = ["PID", "USER", "RAM", "%CPU", "TIME", "COMMAND"]
+    sizeX = [75,50,100,100,75,200,200]
+    header = ["PID", "PRIORITY", "USER", "RAM", "%CPU", "TIME", "COMMAND"]
     
     chartENTRIES=30
 
@@ -64,12 +64,12 @@ def main():
                     for i,info in enumerate( linie.strip().split() ):
                         ramUsed=0
                         cpuUsed=0
-                        if i==2:
+                        if i==3:
                             ramUsed = int(info) >> 10
                             info = str(int(info) >> 10) + " MB"
-                        if i==3:
+                        if i==4:
                             cpuUsed = float(info)
-                        textList[(l)*6+i].setText(info)
+                        textList[(l)*7+i].setText(info)
         
         valuesLIST = []
         with open(usage_file_in,"r") as uf:

@@ -116,18 +116,29 @@ getDeviceUsage() {
 	    P_SHR=$(( SHARED * 100 / TOTAL ))
 	    echo -e "\n $CPU_USAGE $P_USED $P_SHR $TOTAL" > deviceUsage.txt
 	done
+	echo $CPU_USAGE
 }
 
 USER=$(whoami)
 
+reNI() {
+    ni=$(( $1 + 2 ))
+    if (( ni > 19 ))
+    then
+        kill $2
+    else
+        renice $ni $2
+    fi
+}
+
 while [[ 0==0 ]]
 do
     #top -b -o $SORTBY -n 1 | tail -n +7 | awk -F' ' '{print $1, $2, $6, $9, $11, $12}' > report.txt
-    ps -eo pid,user,rss,%cpu,time,comm --sort=-$SORTBY > report.txt
-    getDeviceUsage
+    ps -eo pid,ni,user,rss,%cpu,time,comm --sort=-$SORTBY > report.txt
+    cpuUsage=$(getDeviceUsage)
 	
     tail +2 report.txt |
-    while read pid usr ram cpu t name
+    while read pid ni usr ram cpu t name
     do
         if [[ $usr != "root" ]]
         then
@@ -154,7 +165,7 @@ do
 		        testPID $pid $name && (
 		        echo -e "\e[31m Process $name (PID = $pid) RAM usage exceded $ramLimitMB MB (USED: $MBram MB) \e[0m"
 		        echo -e "\e[31m Process $pid will be stopped (SIGTERM) \e[0m"
-		        kill $pid 
+		        kill $pid
 		        )
 		    fi
 		    cpu=$(echo $cpu | awk '{print int($1)}' )
@@ -164,7 +175,14 @@ do
 		        echo -e "\e[31m Process $name (PID = $pid) CPU usage exceded $cpuLimit% (Used: $cpu%) \e[0m"
 		        echo -e "\e[31m Process $pid will be stopped (SIGSTOP) \e[0m"
 		        kill -19 $pid
-		        (sleep 10; kill -18 $pid; echo -e "\e[32m Process $name (PID = $pid) running... (SIGCONT) \e[0m")&
+		        (while (( $cpuUsage > 30 ))
+		         do
+		             echo "Waiting for less CPU usage!"
+		             sleep 1; 
+		         done
+		         kill -18 $pid
+		         reNI $ni $pid
+		         echo -e "\e[32m Process $name (PID = $pid) running... (SIGCONT) \e[0m")&
 			)
                     fi
                 fi
