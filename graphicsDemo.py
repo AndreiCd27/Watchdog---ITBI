@@ -1,9 +1,15 @@
 import time
+import math
 from graphics import *
+
+start_time = time.time()
 
 def main():
 
     n = 50
+    iter = 0
+    sumCPU = 0
+    sumRAM = 0
     
     height = 20 #inaltimea unui dreptunghi
     windowSizeY = height*n
@@ -46,8 +52,8 @@ def main():
     chartLIST = []
     chartRECT = []
     textList = []  
-    sizeX = [75,50,100,100,75,200,200]
-    header = ["PID", "PRIORITY", "USER", "RAM", "%CPU", "TIME", "COMMAND"]
+    sizeX = [50,75,100,100,75,200,200]
+    header = ["PID", "USER", "RAM", "STATE", "%CPU", "TIME", "COMMAND"]
     
     chartENTRIES=30
 
@@ -61,27 +67,41 @@ def main():
         with open(file_in,"r") as f:
             for l,linie in enumerate(f):
                 if l > 0 and l < n-1:
+                    k=0
+                    pid=""
                     for i,info in enumerate( linie.strip().split() ):
-                        ramUsed=0
-                        cpuUsed=0
-                        if i==3:
-                            ramUsed = int(info) >> 10
-                            info = str(int(info) >> 10) + " MB"
-                        if i==4:
-                            cpuUsed = float(info)
-                        textList[(l)*7+i].setText(info)
-        
+                        if i==1:
+                            pid = info
+                        if i!=2 and i!=3 and i!=4 and i!=6 and i!=9:
+                            ramUsed=0
+                            cpuUsed=0
+                            if i==5:
+                                ramUsed = int(info) >> 10
+                                info = str(int(info) >> 10) + " MB"
+                            if i==8:
+                                cpuUsed = float(info)
+                            if i==7:
+                                if info=="T":
+                                    info="STOPPED"
+                                elif info=="R":
+                                    info="RUNNING"
+                                elif info=="I" or info=="S":
+                                    info="SLEEPING"
+                            textList[(l)*7+k].setText(info)
+                            k += 1
+            f.close()
         valuesLIST = []
         with open(usage_file_in,"r") as uf:
             for l,linie in enumerate(uf):
                 values = linie.strip().split()
                 if l > 0:
                     valuesLIST.append(values)
+            uf.close()
         if len(valuesLIST)>0:
             valuesEnd = valuesLIST[0]
             headerList[0].setText(valuesEnd[0] + "% CPU USED")
             headerList[1].setText(valuesEnd[1] + "% RAM USED | " + valuesEnd[2] + "% RAM SHARED | " + str(int(valuesEnd[3])) + "MB TOTAL" )
-
+    
             return [valuesEnd[0],valuesEnd[1],valuesEnd[2]]
         return []
     
@@ -149,6 +169,13 @@ def main():
     makeRectangle(20,45,320,145).draw(win) #bounding box pt grafic cpu
     makeRectangle(420,45,720,145).draw(win) #bounding box pt grafic ram
 
+    avrgCPUText = makeText(100,170,"Average CPU usage: 0%",10)
+    timeSinceStartText = makeText(300,170,"Time since start: 0s",10)
+    avrgRAMText = makeText(500,170,"Average memory usage: 0%",10)
+    avrgCPUText.draw(win)
+    timeSinceStartText.draw(win)
+    avrgRAMText.draw(win)
+
     for y1 in range(9,n+9):
         x1 = 0
         for width in sizeX:
@@ -159,15 +186,29 @@ def main():
             textList.append( text )
             x1 += width
 
-    for i in range(0,6):
+    for i in range(0,7):
         textList[i].setText(header[i])
     
     while 1:
+        while 1:
+            try:
+                open("stall.txt","r")
+                time.sleep(0.25)
+            except FileNotFoundError:
+                break
         ret = updateText("report.txt","deviceUsage.txt",win)
         if len(ret) > 0:
             x0=ret[0]
             x1=ret[1]
             x2=ret[2]
+
+            iter += 1
+            sumCPU += int(float(x0))
+            sumRAM += int(float(x1))
+            avrgCPUText.setText("Avrg CPU usage: "+str(math.floor(sumCPU*100/iter)/100)+"%")
+            avrgRAMText.setText("Avrg memory usage: "+str(math.floor(sumRAM*100/iter)/100)+"%")
+            timeSinceStartText.setText("Time since start: "+str(int(time.time()-start_time))+"s")
+
             newpbcpu = makeRectangle(20,20,20+int(3*float(x0)),40,color_rgb(0,255,0))
             newpbcpu.draw(win)
 
@@ -209,10 +250,8 @@ def main():
                 chartLIST.append(ret)
 
 
-        time.sleep(1.25)
+        time.sleep(2.75)
     
-
-    win.getMouse()
     win.close()
 
 main()
