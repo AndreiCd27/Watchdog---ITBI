@@ -1,5 +1,5 @@
 # graphics.py
-"""Simple object oriented graphics library  
+"""Simple  object oriented graphics library  
 
 The library is designed to make it very easy for novice programmers to
 experiment with computer graphics in an object oriented fashion. It is
